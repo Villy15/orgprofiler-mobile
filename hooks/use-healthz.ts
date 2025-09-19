@@ -1,5 +1,5 @@
 // src/hooks/useHealthz.ts
-import { API_URL } from "@/lib/api-client";
+import { apiClient } from "@/lib/api-client";
 import { useCallback, useEffect, useState } from "react";
 
 type HealthStatus = "loading" | "ok" | "down";
@@ -12,20 +12,8 @@ export function useHealthz(pollMs = 0) {
     setStatus("loading");
     setMessage("");
     try {
-      const controller = new AbortController();
-      const t = setTimeout(() => controller.abort(), 6000); // 6s timeout
-
-      const res = await fetch(`${API_URL}/healthz`, {
-        signal: controller.signal,
-      });
-      clearTimeout(t);
-
-      if (!res.ok) {
-        setStatus("down");
-        setMessage(`HTTP ${res.status}`);
-        return;
-      }
-      const data = await res.json();
+      const res = await apiClient.get("/healthz", { timeout: 6000 });
+      const data = res.data;
       if (data?.ok === true) {
         setStatus("ok");
       } else {
@@ -34,11 +22,13 @@ export function useHealthz(pollMs = 0) {
       }
     } catch (e: any) {
       setStatus("down");
-      setMessage(
-        e?.name === "AbortError"
-          ? "Request timed out"
-          : e?.message ?? "Network error"
-      );
+      if (e?.code === "ECONNABORTED") {
+        setMessage("Request timed out");
+      } else if (e?.response) {
+        setMessage(`HTTP ${e.response.status}`);
+      } else {
+        setMessage(e?.message ?? "Network error");
+      }
     }
   }, []);
 

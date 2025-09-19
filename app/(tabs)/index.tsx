@@ -1,7 +1,8 @@
+// app/index.tsx (your HomeScreen file)
+import { postAnalyze } from "@/api/analyze";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { useHealthz } from "@/hooks/use-healthz";
-import { API_URL } from "@/lib/api-client";
 import { useOrgProfilerStore } from "@/store/useOrgProfilerStore";
 import * as DocumentPicker from "expo-document-picker";
 import { Image } from "expo-image";
@@ -29,10 +30,16 @@ function StatusPill({ status }: { status: "loading" | "ok" | "down" }) {
 }
 
 export default function HomeScreen() {
-  const { status, message, check } = useHealthz(); // call once on mount
+  const { status, message, check } = useHealthz();
 
-  const { files, setFiles, updateFile, resetFiles, pixelSizeUm } =
-    useOrgProfilerStore();
+  const {
+    files,
+    setFiles,
+    updateFile,
+    resetFiles,
+    analyzedById,
+    addAnalyzedItem,
+  } = useOrgProfilerStore();
 
   const pickFiles = useCallback(async () => {
     const res = await DocumentPicker.getDocumentAsync({
@@ -42,7 +49,6 @@ export default function HomeScreen() {
     });
     if (res.canceled) return;
     const mapped = res.assets.map((a) => ({
-      id: a.uri,
       uri: a.uri,
       name: a.name ?? "image",
       mimeType: a.mimeType ?? "image/jpeg",
@@ -58,37 +64,24 @@ export default function HomeScreen() {
       try {
         updateFile(f.name, { status: "uploading", progress: 1 });
 
-        const form = new FormData();
-        // @ts-ignore RN needs the object format
-        form.append("file", { uri: f.uri, name: f.name, type: f.mimeType });
+        const upload = {
+          uri: f.uri,
+          name: f.name,
+          type: f.mimeType ?? "image/jpeg",
+        } as const;
+        const item = await postAnalyze({ file: upload });
 
-        console.log("Uploading file:", f.name);
-        const qs = new URLSearchParams({
-          pixel_size_um: String(pixelSizeUm),
-        }).toString();
-
-        const resp = await fetch(`${API_URL}/analyze/brightfield?${qs}`, {
-          method: "POST",
-          body: form,
-        });
-
-        console.log("Response , status:", resp);
-
-        if (!resp.ok) {
-          console.log("Error response:", await resp.text());
-          throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
-        }
-        await resp.json(); // optionally store parsed results
-
+        addAnalyzedItem(item); // <-- store it
         updateFile(f.name, { status: "done", progress: 100 });
       } catch (e: any) {
         console.log("Error uploading file:", f.name, e);
         updateFile(f.name, { status: "error", progress: 0, error: e?.message });
       }
     }
-  }, [files, pixelSizeUm, updateFile]);
+  }, [files, updateFile, addAnalyzedItem]);
 
   const canAnalyze = files.length > 0;
+  const analyzedItems = Object.values(analyzedById);
 
   return (
     <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
@@ -105,6 +98,8 @@ export default function HomeScreen() {
           <ThemedText type="defaultSemiBold">Retry</ThemedText>
         </Pressable>
       </ThemedView>
+
+      {/* Picker card */}
       <ThemedView style={styles.card}>
         <ThemedText type="default" style={styles.muted}>
           Tap below to pick images. JPG is recommended (PNG/TIFF can be
@@ -118,40 +113,31 @@ export default function HomeScreen() {
           </ThemedText>
         </Pressable>
 
+        {/* Selected files */}
         {files.length > 0 && (
           <ThemedView style={{ gap: 10 }}>
             {files.map((f) => (
-              <Pressable
-                key={f.name}
-                onPress={() => {
-                  router.push({
-                    pathname: "/result/[id]",
-                    params: { id: f.id },
-                  });
-                }}
-              >
-                <ThemedView style={styles.itemRow}>
-                  <Image
-                    source={{ uri: f.uri }}
-                    style={styles.thumb}
-                    contentFit="cover"
-                  />
-                  <ThemedView style={{ flex: 1 }}>
-                    <ThemedText type="defaultSemiBold" numberOfLines={1}>
-                      {f.name}
-                    </ThemedText>
-                    <ThemedText type="default" style={styles.mutedSmall}>
-                      {f.status === "uploading" && "Uploading…"}
-                      {f.status === "done" && "Completed"}
-                      {f.status === "error" && `Error: ${f.error}`}
-                      {f.status === "pending" && "Pending"}
-                    </ThemedText>
-                  </ThemedView>
-                  <ThemedText type="defaultSemiBold">
-                    {Math.round(f.progress ?? 0)}%
+              <ThemedView key={f.name} style={styles.itemRow}>
+                <Image
+                  source={{ uri: f.uri }}
+                  style={styles.thumb}
+                  contentFit="cover"
+                />
+                <ThemedView style={{ flex: 1 }}>
+                  <ThemedText type="defaultSemiBold" numberOfLines={1}>
+                    {f.name}
+                  </ThemedText>
+                  <ThemedText type="default" style={styles.mutedSmall}>
+                    {f.status === "uploading" && "Uploading…"}
+                    {f.status === "done" && "Completed"}
+                    {f.status === "error" && `Error: ${f.error}`}
+                    {f.status === "pending" && "Pending"}
                   </ThemedText>
                 </ThemedView>
-              </Pressable>
+                <ThemedText type="defaultSemiBold">
+                  {Math.round(f.progress ?? 0)}%
+                </ThemedText>
+              </ThemedView>
             ))}
           </ThemedView>
         )}
@@ -169,6 +155,42 @@ export default function HomeScreen() {
           </Pressable>
         </View>
       </ThemedView>
+
+      {/* Analyzed results list */}
+      {analyzedItems.length > 0 && (
+        <ThemedView style={[styles.card, { gap: 10 }]}>
+          <ThemedText type="subtitle">Analyzed results</ThemedText>
+          {analyzedItems.map((it) => (
+            <Pressable
+              key={it.id}
+              onPress={() =>
+                router.push({ pathname: "/result/[id]", params: { id: it.id } })
+              }
+            >
+              <ThemedView style={styles.itemRow}>
+                {/* Use ROI or mask preview */}
+                <Image
+                  source={{ uri: it.roi_image }}
+                  style={styles.thumb}
+                  contentFit="cover"
+                />
+                <ThemedView style={{ flex: 1 }}>
+                  <ThemedText type="defaultSemiBold" numberOfLines={1}>
+                    {it.filename}
+                  </ThemedText>
+                  <ThemedText
+                    type="default"
+                    style={styles.mutedSmall}
+                    numberOfLines={1}
+                  >
+                    {new Date(it.analyzedAt).toLocaleString()}
+                  </ThemedText>
+                </ThemedView>
+              </ThemedView>
+            </Pressable>
+          ))}
+        </ThemedView>
+      )}
     </ScrollView>
   );
 }

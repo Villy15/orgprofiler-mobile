@@ -1,8 +1,16 @@
-import { useMutation } from "@tanstack/react-query";
-
 import { apiClient } from "@/lib/api-client";
-import { MutationConfig } from "@/lib/react-query";
-import type { AnalyzeResponse, AnalyzedItem } from "@/types";
+import { AnalyzedItem, AnalyzeResponse } from "@/types";
+import * as Crypto from "expo-crypto";
+
+export type RNFile = {
+  uri: string;
+  name: string;
+  type: string;
+  size?: number | null;
+};
+export type UploadFile = File | RNFile;
+
+const isRNFile = (f: UploadFile): f is RNFile => !!(f as any)?.uri;
 
 export type AnalyzeParams = {
   sigma_pre: number;
@@ -19,88 +27,44 @@ const DEFAULT_PARAMS: AnalyzeParams = {
 };
 
 type PostAnalyzeInput = {
-  file: File;
+  file: UploadFile;
   params?: Partial<AnalyzeParams>;
 };
 
-const postAnalyze = async ({
+export const postAnalyze = async ({
   file,
   params,
 }: PostAnalyzeInput): Promise<AnalyzedItem> => {
   const form = new FormData();
-  form.append("file", file, file.name);
+  if (isRNFile(file)) {
+    // RN/Expo style
+    form.append("file", file as any);
+  } else {
+    // Web/browser File
+    form.append("file", file, file.name);
+  }
 
   const qp = { ...DEFAULT_PARAMS, ...(params || {}) };
 
   const res = await apiClient.post<AnalyzeResponse>(
     "/analyze/brightfield",
     form,
-    { params: qp }
+    {
+      params: qp,
+      // If needed on RN:
+      headers: { "Content-Type": "multipart/form-data" },
+    }
   );
 
   const data = res.data;
-  const item: AnalyzedItem = {
-    id: crypto.randomUUID(),
-    filename: file.name,
+  const filename = isRNFile(file) ? file.name : file.name;
+
+  return {
+    id: Crypto.randomUUID(),
+    filename,
     analyzedAt: new Date().toISOString(),
     results: data.results,
     roi_image: data.roi_image,
     mask_image: data.mask_image,
   };
-  return item;
-};
-
-type UseAnalyzeImage = {
-  mutationConfig?: MutationConfig<typeof postAnalyze>;
-};
-
-export const useAnalyzeImage = ({ mutationConfig }: UseAnalyzeImage = {}) => {
-  const { onSuccess, ...restConfig } = mutationConfig || {};
-  return useMutation({
-    ...restConfig,
-    mutationFn: postAnalyze,
-    onSuccess: (data, variables, context, mutation) => {
-      onSuccess?.(data, variables, context, mutation);
-    },
-  });
-};
-
-const postAnalyzeFlorescence = async ({
-  file,
-  params,
-}: PostAnalyzeInput): Promise<AnalyzedItem> => {
-  const form = new FormData();
-  form.append("file", file, file.name);
-
-  const qp = { ...DEFAULT_PARAMS, ...(params || {}) };
-
-  const res = await apiClient.post<AnalyzeResponse>(
-    "/analyze/fluorescence",
-    form,
-    { params: qp }
-  );
-
-  const data = res.data;
-  const item: AnalyzedItem = {
-    id: crypto.randomUUID(),
-    filename: file.name,
-    analyzedAt: new Date().toISOString(),
-    results: data.results,
-    roi_image: data.roi_image,
-    mask_image: data.mask_image,
-  };
-  return item;
-};
-
-export const useAnalyzeImageFlorescence = ({
-  mutationConfig,
-}: UseAnalyzeImage = {}) => {
-  const { onSuccess, ...restConfig } = mutationConfig || {};
-  return useMutation({
-    ...restConfig,
-    mutationFn: postAnalyzeFlorescence,
-    onSuccess: (data, variables, context, mutation) => {
-      onSuccess?.(data, variables, context, mutation);
-    },
-  });
 };

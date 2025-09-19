@@ -1,4 +1,4 @@
-import { AnalysisResults } from './analysis-results-type';
+import { AnalysisResults } from "./analysis-results-type";
 
 export type AnalyzedItem = {
   id: string;

@@ -1,45 +1,42 @@
+// store/useOrgProfilerStore.ts
+import type { AnalyzedItem } from "@/types";
 import { create } from "zustand";
 
-export type SelectedFile = {
-  id: string;
+type SelectedFile = {
   uri: string;
   name: string;
-  mimeType?: string | null;
-  size?: number | null;
-  progress?: number;
-  status?: "pending" | "uploading" | "done" | "error";
+  mimeType: string;
+  size: number | null;
+  progress: number;
+  status: "pending" | "uploading" | "done" | "error";
   error?: string;
 };
 
-type State = {
+type OrgProfilerState = {
   files: SelectedFile[];
-  pixelSizeUm: string;
-  minSizePx: string;
-  maxSizePx: string;
-  areaThresholdPx: string;
-  minCircularity: string;
-  circThreshold: string;
-
-  setFiles: (files: SelectedFile[]) => void;
+  setFiles: (f: SelectedFile[]) => void;
   updateFile: (name: string, patch: Partial<SelectedFile>) => void;
   resetFiles: () => void;
-  setParam: <K extends keyof State>(k: K, v: State[K]) => void;
+
+  // New: analyzed items
+  analyzedById: Record<string, AnalyzedItem>;
+  addAnalyzedItem: (item: AnalyzedItem) => void;
+  getAnalyzedItem: (id: string) => AnalyzedItem | undefined;
+  clearAnalyzed: () => void;
 };
 
-export const useOrgProfilerStore = create<State>((set) => ({
+export const useOrgProfilerStore = create<OrgProfilerState>((set, get) => ({
   files: [],
-  pixelSizeUm: "0.86",
-  minSizePx: "60000",
-  maxSizePx: "20000000",
-  areaThresholdPx: "20500000",
-  minCircularity: "0.28",
-  circThreshold: "0.31",
-
   setFiles: (files) => set({ files }),
   updateFile: (name, patch) =>
     set((s) => ({
       files: s.files.map((f) => (f.name === name ? { ...f, ...patch } : f)),
     })),
   resetFiles: () => set({ files: [] }),
-  setParam: (k, v) => set({ [k]: v } as any),
+
+  analyzedById: {},
+  addAnalyzedItem: (item) =>
+    set((s) => ({ analyzedById: { ...s.analyzedById, [item.id]: item } })),
+  getAnalyzedItem: (id) => get().analyzedById[id],
+  clearAnalyzed: () => set({ analyzedById: {} }),
 }));
