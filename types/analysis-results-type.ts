@@ -1,0 +1,44 @@
+export interface AnalysisResults {
+  day: number;
+  organoidNumber: number;
+  growthRate?: number | null; // NEW
+  area: number;
+  mean: number;
+  stdDev: number;
+  mode: number;
+  min: number;
+  max: number;
+  x: number;
+  y: number;
+  xm: number;
+  ym: number;
+  perim: number;
+  bx: number;
+  by: number;
+  width: number;
+  height: number;
+  major: number;
+  minor: number;
+  angle: number;
+  circ: number;
+  feret: number;
+  intDen: number;
+  median: number;
+  skew: number;
+  kurt: number;
+  rawIntDen: number;
+  feretX: number;
+  feretY: number;
+  feretAngle: number;
+  minFeret: number;
+  ar: number;
+  round: number;
+  solidity: number;
+  eqDiam: number;
+  corrTotalInt: number;
+  corrMeanInt: number;
+  corrMinInt: number;
+  corrMaxInt: number;
+  centroidToCom: number;
+  bgRing: number;
+}

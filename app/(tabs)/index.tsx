@@ -1,98 +1,234 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { ThemedText } from "@/components/themed-text";
+import { ThemedView } from "@/components/themed-view";
+import { useHealthz } from "@/hooks/use-healthz";
+import { API_URL } from "@/lib/api-client";
+import { useOrgProfilerStore } from "@/store/useOrgProfilerStore";
+import * as DocumentPicker from "expo-document-picker";
+import { Image } from "expo-image";
+import { router } from "expo-router";
+import { useCallback } from "react";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+function StatusPill({ status }: { status: "loading" | "ok" | "down" }) {
+  const bg =
+    status === "ok" ? "#bbf7d0" : status === "down" ? "#fecaca" : "#fde68a";
+  const text =
+    status === "ok" ? "Online" : status === "down" ? "Offline" : "Checking…";
+  return (
+    <View
+      style={{
+        backgroundColor: bg,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 999,
+      }}
+    >
+      <ThemedText type="defaultSemiBold">{text}</ThemedText>
+    </View>
+  );
+}
 
 export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+  const { status, message, check } = useHealthz(); // call once on mount
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
+  const { files, setFiles, updateFile, resetFiles, pixelSizeUm } =
+    useOrgProfilerStore();
+
+  const pickFiles = useCallback(async () => {
+    const res = await DocumentPicker.getDocumentAsync({
+      multiple: true,
+      copyToCacheDirectory: true,
+      type: ["image/jpeg", "image/png", "image/tiff"],
+    });
+    if (res.canceled) return;
+    const mapped = res.assets.map((a) => ({
+      id: a.uri,
+      uri: a.uri,
+      name: a.name ?? "image",
+      mimeType: a.mimeType ?? "image/jpeg",
+      size: a.size ?? null,
+      progress: 0,
+      status: "pending" as const,
+    }));
+    setFiles(mapped);
+  }, [setFiles]);
+
+  const startAnalysis = useCallback(async () => {
+    for (const f of files) {
+      try {
+        updateFile(f.name, { status: "uploading", progress: 1 });
+
+        const form = new FormData();
+        // @ts-ignore RN needs the object format
+        form.append("file", { uri: f.uri, name: f.name, type: f.mimeType });
+
+        console.log("Uploading file:", f.name);
+        const qs = new URLSearchParams({
+          pixel_size_um: String(pixelSizeUm),
+        }).toString();
+
+        const resp = await fetch(`${API_URL}/analyze/brightfield?${qs}`, {
+          method: "POST",
+          body: form,
+        });
+
+        console.log("Response , status:", resp);
+
+        if (!resp.ok) {
+          console.log("Error response:", await resp.text());
+          throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
+        }
+        await resp.json(); // optionally store parsed results
+
+        updateFile(f.name, { status: "done", progress: 100 });
+      } catch (e: any) {
+        console.log("Error uploading file:", f.name, e);
+        updateFile(f.name, { status: "error", progress: 0, error: e?.message });
+      }
+    }
+  }, [files, pixelSizeUm, updateFile]);
+
+  const canAnalyze = files.length > 0;
+
+  return (
+    <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
+      {/* Health row */}
+      <ThemedView style={styles.healthRow}>
+        <ThemedText type="defaultSemiBold">API</ThemedText>
+        <StatusPill status={status} />
+        {message ? (
+          <ThemedText type="default" style={{ opacity: 0.6 }} numberOfLines={1}>
+            {message}
+          </ThemedText>
+        ) : null}
+        <Pressable onPress={check} style={styles.retryBtn}>
+          <ThemedText type="defaultSemiBold">Retry</ThemedText>
+        </Pressable>
       </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
+      <ThemedView style={styles.card}>
+        <ThemedText type="default" style={styles.muted}>
+          Tap below to pick images. JPG is recommended (PNG/TIFF can be
+          memory-heavy).
         </ThemedText>
+
+        <Pressable onPress={pickFiles} style={styles.dropzone}>
+          <ThemedText type="subtitle">Choose images</ThemedText>
+          <ThemedText type="default" style={styles.mutedSmall}>
+            Supports JPG, PNG, TIFF · Select multiple
+          </ThemedText>
+        </Pressable>
+
+        {files.length > 0 && (
+          <ThemedView style={{ gap: 10 }}>
+            {files.map((f) => (
+              <Pressable
+                key={f.name}
+                onPress={() => {
+                  router.push({
+                    pathname: "/result/[id]",
+                    params: { id: f.id },
+                  });
+                }}
+              >
+                <ThemedView style={styles.itemRow}>
+                  <Image
+                    source={{ uri: f.uri }}
+                    style={styles.thumb}
+                    contentFit="cover"
+                  />
+                  <ThemedView style={{ flex: 1 }}>
+                    <ThemedText type="defaultSemiBold" numberOfLines={1}>
+                      {f.name}
+                    </ThemedText>
+                    <ThemedText type="default" style={styles.mutedSmall}>
+                      {f.status === "uploading" && "Uploading…"}
+                      {f.status === "done" && "Completed"}
+                      {f.status === "error" && `Error: ${f.error}`}
+                      {f.status === "pending" && "Pending"}
+                    </ThemedText>
+                  </ThemedView>
+                  <ThemedText type="defaultSemiBold">
+                    {Math.round(f.progress ?? 0)}%
+                  </ThemedText>
+                </ThemedView>
+              </Pressable>
+            ))}
+          </ThemedView>
+        )}
+
+        <View style={styles.row}>
+          <Pressable
+            onPress={startAnalysis}
+            disabled={!canAnalyze}
+            style={[styles.buttonPrimary, !canAnalyze && styles.buttonDisabled]}
+          >
+            <ThemedText type="defaultSemiBold">Start Batch Analysis</ThemedText>
+          </Pressable>
+          <Pressable onPress={resetFiles} style={styles.buttonGhost}>
+            <ThemedText type="defaultSemiBold">Clear</ThemedText>
+          </Pressable>
+        </View>
       </ThemedView>
-    </ParallaxScrollView>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  card: {
+    gap: 12,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  dropzone: {
+    height: 160,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "#cbd5e1",
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  muted: { opacity: 0.7 },
+  mutedSmall: { opacity: 0.6, fontSize: 12 },
+  itemRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 6,
+  },
+  thumb: { width: 54, height: 54, borderRadius: 8, backgroundColor: "#e2e8f0" },
+  row: { flexDirection: "row", gap: 12, marginTop: 6 },
+  buttonPrimary: {
+    flex: 1,
+    backgroundColor: "#93c5fd",
+    padding: 14,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  buttonDisabled: { backgroundColor: "#e2e8f0" },
+  buttonGhost: {
+    padding: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  healthRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+    paddingTop: 8,
+  },
+  retryBtn: {
+    marginLeft: "auto",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
   },
 });
